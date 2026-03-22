@@ -22,13 +22,11 @@ import base64
 import glob
 import time
 import fitz  # PyMuPDF
-import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # --- Configuración ---
-MODEL = "claude-sonnet-4-20250514"
 MAX_TOKENS = 4096
 
 EXTRACTION_PROMPT = """Analiza esta imagen de un programa de viaje de Europamundo y extrae la información en formato JSON.
@@ -109,62 +107,30 @@ def match_image_to_id(filename, page_ids):
     return page_ids.get((page_num, 0))
 
 
-def encode_image(image_path):
-    """Codifica imagen a base64 para la API."""
+def extract_program_data(image_path):
+    """Envía imagen a LLM Vision y extrae datos estructurados."""
+    from llm_client import llm_vision, get_provider_info
+
     with open(image_path, "rb") as f:
-        return base64.standard_b64encode(f.read()).decode("utf-8")
+        image_bytes = f.read()
 
-
-def extract_program_data(client, image_path):
-    """Envía imagen a Claude Vision y extrae datos estructurados."""
-    img_base64 = encode_image(image_path)
-
-    message = client.messages.create(
-        model=MODEL,
-        max_tokens=MAX_TOKENS,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": img_base64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": EXTRACTION_PROMPT,
-                    },
-                ],
-            }
-        ],
-    )
-
-    response_text = message.content[0].text
+    response_text, usage = llm_vision(image_bytes, EXTRACTION_PROMPT, "image/png", MAX_TOKENS)
 
     # Limpiar posible markdown wrapping
     clean = response_text.strip()
     if clean.startswith("```"):
-        clean = clean.split("\n", 1)[1]  # quitar primera línea ```json
-        clean = clean.rsplit("```", 1)[0]  # quitar último ```
+        clean = clean.split("\n", 1)[1]
+        clean = clean.rsplit("```", 1)[0]
 
     data = json.loads(clean)
-
-    # Info de uso de tokens
-    usage = {
-        "input_tokens": message.usage.input_tokens,
-        "output_tokens": message.usage.output_tokens,
-    }
-
     return data, usage
 
 
 def process_programs(pdf_path, test_count=None):
     """Procesa todas las imágenes de programa extraídas de un PDF."""
-    client = anthropic.Anthropic()  # Usa ANTHROPIC_API_KEY del entorno
+    from llm_client import get_provider_info
+    info = get_provider_info()
+    print(f"Usando: {info['provider']} ({info['model']})")
 
     # Directorio de imágenes (mismo que usa etapa 1)
     pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
@@ -218,7 +184,7 @@ def process_programs(pdf_path, test_count=None):
         print(f"  [{i+1}/{len(images)}] {filename} (ID:{prog_id})...", end=" ", flush=True)
 
         try:
-            data, usage = extract_program_data(client, img_path)
+            data, usage = extract_program_data(img_path)
             total_input_tokens += usage["input_tokens"]
             total_output_tokens += usage["output_tokens"]
 

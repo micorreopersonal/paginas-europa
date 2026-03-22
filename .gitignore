@@ -1,8 +1,22 @@
+# Secrets
 .env
+
+# Python
 __pycache__/
 *.pyc
+
+# Output (generado)
 output/
+input/*.pdf
+
+# Cache
+.cache/
+
+# Images
 *.png
 *.jpg
 *.jpeg
-*.pdf
+
+# IDE
+.vscode/
+.idea/

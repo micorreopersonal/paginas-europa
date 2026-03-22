@@ -1,0 +1,8 @@
+PyMuPDF>=1.24
+Pillow>=10.0
+anthropic>=0.80
+google-generativeai>=0.8
+python-dotenv>=1.0
+requests>=2.31
+geopy>=2.4
+Jinja2>=3.1

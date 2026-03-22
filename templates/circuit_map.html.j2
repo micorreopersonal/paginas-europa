@@ -1,0 +1,284 @@
+<div class="circuit-map-container">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+
+<script>
+const CIRCUIT = {{ circuit | tojson }};
+const COORDS = {{ coords_json }};
+const TRAMOS = {{ tramos_json }};
+const NIGHTS = {{ nights_json }};
+const MEALS = {{ meals_json }};
+const MAPTILER_KEY = "{{ maptiler_key }}";
+</script>
+
+<style>
+.circuit-map-container { max-width: 100%; width: 100%; margin: 0 auto; font-family: 'Roboto', sans-serif; color: #3b3d42; box-sizing: border-box; }
+
+/* Mapa */
+.cm-map-wrap { position: relative; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+.cm-map-box { width: 100%; height: 450px; }
+
+/* Tarjeta título */
+.cm-title-card { position: absolute; top: 12px; right: 12px; background: white; border-radius: 8px; padding: 10px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 10; max-width: 260px; }
+.cm-title-name { font-size: 15px; font-weight: 600; color: #3b3d42; line-height: 1.2; }
+.cm-title-meta { font-size: 12px; color: #888; margin-top: 2px; }
+
+/* Leyenda */
+.cm-legend { position: absolute; bottom: 12px; right: 12px; background: white; border-radius: 8px; padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 10; font-size: 11px; display: flex; flex-direction: column; gap: 6px; }
+.cm-legend-item { display: flex; align-items: center; gap: 8px; }
+.cm-legend-line { width: 28px; height: 0; }
+.cm-legend-line.road { border-top: 3px solid #398ffc; }
+.cm-legend-line.flight { border-top: 2.5px dashed #2980b9; }
+.cm-legend-dot { width: 16px; height: 16px; border-radius: 50%; background: #398ffc; color: white; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+/* Marcadores */
+.cm-marker-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
+.cm-marker-label { white-space: nowrap; font-size: 11px; font-weight: 700; color: #3b3d42; text-transform: uppercase; letter-spacing: 0.5px; text-shadow: 0 0 4px white, 0 0 4px white, 0 0 4px white; transition: opacity 0.2s; }
+.cm-marker-label.hidden { opacity: 0; }
+.cm-marker-dot { width: 24px; height: 24px; border-radius: 50%; background: #398ffc; color: white; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: all 0.3s; }
+.cm-marker-dot.active { width: 30px; height: 30px; font-size: 13px; background: #1a6fdc; box-shadow: 0 2px 12px rgba(57,143,252,0.5); }
+
+/* Barra de días */
+.cm-days-bar { display: flex; gap: 4px; margin-top: 14px; overflow-x: auto; padding: 4px 0; scrollbar-width: none; }
+.cm-days-bar::-webkit-scrollbar { display: none; }
+.cm-day-btn { padding: 8px 14px; border-radius: 6px; border: 1.5px solid #ddd; background: white; color: #555; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.2s; flex-shrink: 0; }
+.cm-day-btn:hover { border-color: #398ffc; color: #398ffc; }
+.cm-day-btn.active { background: #398ffc; color: white; border-color: #398ffc; font-weight: 700; }
+
+/* Panel info */
+.cm-info { margin-top: 16px; }
+.cm-info-header { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.cm-info-daybox { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%; background: #398ffc; color: white; flex-shrink: 0; }
+.cm-info-daybox-num { font-size: 22px; font-weight: 700; line-height: 1; }
+.cm-info-daybox-dow { font-size: 10px; font-weight: 500; text-transform: uppercase; }
+.cm-info-city { font-size: 20px; font-weight: 600; }
+.cm-info-counter { font-size: 12px; color: #999; }
+.cm-info-desc { background: #f7f8fa; border-radius: 8px; padding: 14px 16px; font-size: 13px; line-height: 1.6; color: #555; margin-bottom: 12px; }
+.cm-info-meals { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.cm-meal-chip { display: none; padding: 4px 12px; border-radius: 14px; font-size: 11px; font-weight: 500; }
+.cm-meal-chip.show { display: inline-block; }
+.cm-meal-chip.lunch { background: #e8f5e9; color: #2e7d32; }
+.cm-meal-chip.dinner { background: #fce4ec; color: #c62828; }
+.cm-meal-chip.flight { background: #e3f2fd; color: #1565c0; }
+
+/* Botones prev/next */
+.cm-nav-btns { display: flex; gap: 10px; }
+.cm-nav-btn { flex: 1; padding: 10px; border-radius: 8px; border: 1.5px solid #ddd; background: white; font-size: 13px; color: #555; cursor: pointer; text-align: center; transition: all 0.2s; }
+.cm-nav-btn:hover:not(:disabled) { border-color: #398ffc; color: #398ffc; }
+.cm-nav-btn.next { font-weight: 600; border-color: #398ffc; color: white; background: #398ffc; }
+.cm-nav-btn.next:hover { background: rgb(95,181,255); border-color: rgb(95,181,255); }
+.cm-nav-btn:disabled { opacity: 0.4; cursor: default; }
+
+@media (max-width: 767px) {
+  .cm-map-box { height: 300px; }
+  .cm-title-card { display: none; }
+  .cm-legend { bottom: 6px; right: 6px; padding: 6px 10px; font-size: 10px; }
+  .cm-info-city { font-size: 16px; }
+}
+</style>
+
+<div class="cm-map-wrap">
+  <div id="cm-map" class="cm-map-box"></div>
+  <div class="cm-title-card">
+    <div class="cm-title-name" id="cm-title"></div>
+    <div class="cm-title-meta" id="cm-title-meta"></div>
+  </div>
+  <div class="cm-legend">
+    <div class="cm-legend-item"><div class="cm-legend-line road"></div> Ruta terrestre</div>
+    <div class="cm-legend-item"><div class="cm-legend-line flight"></div> Vuelo incluido</div>
+    <div class="cm-legend-item"><div class="cm-legend-dot">N</div> Noches en ciudad</div>
+  </div>
+</div>
+
+<div class="cm-days-bar" id="cm-days"></div>
+
+<div class="cm-info">
+  <div class="cm-info-header">
+    <div class="cm-info-daybox">
+      <span class="cm-info-daybox-num" id="cm-day-num">01</span>
+      <span class="cm-info-daybox-dow" id="cm-weekday"></span>
+    </div>
+    <div>
+      <div class="cm-info-city" id="cm-cities"></div>
+      <div class="cm-info-counter" id="cm-counter"></div>
+    </div>
+  </div>
+  <div class="cm-info-desc" id="cm-desc"></div>
+  <div class="cm-info-meals">
+    <span class="cm-meal-chip lunch" id="cm-lunch">&#127860; Almuerzo</span>
+    <span class="cm-meal-chip dinner" id="cm-dinner">&#127869; Cena</span>
+    <span class="cm-meal-chip flight" id="cm-flight">&#9992; Vuelo</span>
+  </div>
+  <div class="cm-nav-btns">
+    <button class="cm-nav-btn prev" id="cm-prev">&larr; Día anterior</button>
+    <button class="cm-nav-btn next" id="cm-next">Día siguiente &rarr;</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  const itin = CIRCUIT.itinerario || [];
+  if (!itin.length || !Object.keys(COORDS).length) return;
+
+  let activeDay = 0;
+  const totalDays = itin.length;
+
+  // Título
+  document.getElementById('cm-title').textContent = CIRCUIT.titulo || '';
+  const meta = [];
+  if (CIRCUIT.dias) meta.push(CIRCUIT.dias + ' días');
+  if (CIRCUIT.precio_desde) meta.push('desde ' + CIRCUIT.precio_desde);
+  document.getElementById('cm-title-meta').textContent = meta.join(' · ');
+
+  // Bounds
+  const lngs = Object.values(COORDS).map(c => c.lng);
+  const lats = Object.values(COORDS).map(c => c.lat);
+  const bounds = [[Math.min(...lngs), Math.min(...lats)],
+                  [Math.max(...lngs), Math.max(...lats)]];
+
+  const map = new maplibregl.Map({
+    container: 'cm-map',
+    style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
+    bounds: bounds,
+    fitBoundsOptions: { padding: 60, maxZoom: 8 },
+    attributionControl: false
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), 'top-left');
+
+  // Botones de días
+  const daysContainer = document.getElementById('cm-days');
+  itin.forEach((day, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'cm-day-btn';
+    btn.textContent = 'Día ' + (day.dia || (i + 1));
+    btn.addEventListener('click', () => selectDay(i));
+    daysContainer.appendChild(btn);
+  });
+
+  document.getElementById('cm-prev').addEventListener('click', () => {
+    if (activeDay > 0) selectDay(activeDay - 1);
+  });
+  document.getElementById('cm-next').addEventListener('click', () => {
+    if (activeDay < totalDays - 1) selectDay(activeDay + 1);
+  });
+
+  // Zoom → ocultar/mostrar labels
+  const allLabels = [];
+  map.on('zoom', () => {
+    const z = map.getZoom();
+    allLabels.forEach(label => label.classList.toggle('hidden', z < 4.5));
+  });
+
+  // Marcadores
+  const cityMarkers = {};
+
+  map.on('load', () => {
+    // Rutas
+    TRAMOS.forEach((tramo, i) => {
+      const id = 'route-' + i;
+      map.addSource(id, { type: 'geojson', data: tramo.geojson });
+      map.addLayer({
+        id: id,
+        type: 'line',
+        source: id,
+        paint: {
+          'line-color': tramo.is_flight ? '#2980b9' : '#398ffc',
+          'line-width': tramo.is_flight ? 2.5 : 3.5,
+          'line-opacity': 0.6,
+          'line-dasharray': tramo.is_flight ? [4, 4] : [1, 0],
+        }
+      });
+    });
+
+    // Marcadores de ciudad con noches
+    Object.entries(COORDS).forEach(([city, coord]) => {
+      const n = NIGHTS[city] || 0;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'cm-marker-wrap';
+
+      const label = document.createElement('div');
+      label.className = 'cm-marker-label';
+      label.textContent = city;
+
+      const dot = document.createElement('div');
+      dot.className = 'cm-marker-dot';
+      dot.textContent = n > 0 ? n : '';
+
+      wrap.appendChild(label);
+      wrap.appendChild(dot);
+
+      cityMarkers[city] = { dot, label };
+      allLabels.push(label);
+
+      new maplibregl.Marker({ element: wrap, anchor: 'bottom' })
+        .setLngLat([coord.lng, coord.lat])
+        .addTo(map);
+
+      dot.addEventListener('click', () => {
+        const dayIdx = itin.findIndex(d => (d.ciudades || '').includes(city));
+        if (dayIdx >= 0) selectDay(dayIdx);
+      });
+    });
+
+    selectDay(0);
+  });
+
+  function selectDay(idx) {
+    activeDay = idx;
+    const day = itin[idx];
+
+    // Botones
+    document.querySelectorAll('.cm-day-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', i === idx);
+    });
+    const activeBtn = daysContainer.children[idx];
+    if (activeBtn) activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+
+    // Ciudad destino
+    const dayCities = (day.ciudades || '').split(/\s*[-–—]\s*/).map(c => c.trim());
+    const targetCity = dayCities[dayCities.length - 1];
+    const coord = COORDS[targetCity];
+
+    if (coord) {
+      map.flyTo({ center: [coord.lng, coord.lat], zoom: 7, duration: 1200 });
+    }
+
+    // Marcadores: resaltar activos
+    Object.entries(cityMarkers).forEach(([city, m]) => {
+      m.dot.classList.toggle('active', dayCities.includes(city));
+    });
+
+    // Rutas: activa resalta
+    TRAMOS.forEach((tramo, i) => {
+      const layerId = 'route-' + i;
+      if (map.getLayer(layerId)) {
+        const isActive = tramo.day_idx === idx;
+        const isPast = tramo.day_idx <= idx;
+        map.setPaintProperty(layerId, 'line-opacity', isActive ? 1.0 : (isPast ? 0.7 : 0.35));
+        map.setPaintProperty(layerId, 'line-width', isActive
+          ? (tramo.is_flight ? 4 : 5)
+          : (tramo.is_flight ? 2.5 : 3.5));
+      }
+    });
+
+    // Panel info
+    document.getElementById('cm-day-num').textContent = day.dia || (idx + 1);
+    document.getElementById('cm-weekday').textContent = day.dia_semana || '';
+    document.getElementById('cm-cities').textContent = day.ciudades || '';
+    document.getElementById('cm-counter').textContent = 'Día ' + (idx + 1) + ' de ' + totalDays;
+    document.getElementById('cm-desc').textContent = day.descripcion || day['descripción'] || '';
+
+    const m = MEALS[idx] || {};
+    document.getElementById('cm-lunch').classList.toggle('show', !!m.lunch);
+    document.getElementById('cm-dinner').classList.toggle('show', !!m.dinner);
+    document.getElementById('cm-flight').classList.toggle('show', !!m.flight);
+
+    // Botones prev/next
+    document.getElementById('cm-prev').disabled = idx === 0;
+    document.getElementById('cm-next').disabled = idx === totalDays - 1;
+  }
+})();
+</script>
+</div>
