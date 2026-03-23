@@ -238,7 +238,7 @@ const MAPTILER_KEY = "{{ maptiler_key }}";
     if (activeBtn) activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
 
     // Ciudad destino
-    const dayCities = (day.ciudades || '').split(/\s*[-–—]\s*/).map(c => c.trim());
+    const dayCities = (day.ciudades || '').split(/\s*[,\-–—→✈/]\s*/).map(c => c.trim()).filter(c => c);
     const targetCity = dayCities[dayCities.length - 1];
     const coord = COORDS[targetCity];
 

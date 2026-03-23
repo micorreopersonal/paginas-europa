@@ -36,8 +36,15 @@ TEMPLATE_DIR = PROJECT_ROOT / "templates"
 NOMINATIM_DELAY = 1.1  # segundos entre llamadas (fair use)
 OSRM_URL = os.getenv("OSRM_URL", "https://router.project-osrm.org")
 MAPTILER_KEY = os.getenv("MAPTILER_API_KEY", "")
-CITY_SEPARATORS = re.compile(r"\s*[-–—]\s*")
+CITY_SEPARATORS = re.compile(r"\s*[,\-–—→✈/]\s*")
 FLIGHT_KEYWORDS = {"vuelo", "aeropuerto", "flight", "avión", "aéreo"}
+
+# Strings que el OCR extrae pero no son ciudades reales
+CITY_BLACKLIST = {
+    "destino origen", "pais origen", "país origen", "origen", "destino",
+    "fin de viaje", "fin del viaje", "regreso", "ciudad de origen",
+    "aeropuerto", "hotel", "fin de servicios", "fin servicios",
+}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -73,11 +80,13 @@ def _fuzzy_match_cache(city, cache):
     return None
 
 
-def geocode_cities(cities, overrides=None):
+def geocode_cities(cities, overrides=None, country_codes=None):
     """
     Resuelve coordenadas para una lista de ciudades.
     Retorna {ciudad: {"lat": float, "lng": float}}.
     Usa caché en disco con búsqueda fuzzy para tolerar typos del OCR.
+    country_codes: lista de códigos ISO 3166-1 alpha-2 para sesgar geocoding
+                   (ej: ["in", "np", "lk"] para India, Nepal, Sri Lanka).
     """
     cache = _load_cache()
     geolocator = Nominatim(user_agent="europamundo-circuit-map/1.0")
@@ -99,9 +108,18 @@ def geocode_cities(cities, overrides=None):
             print(f"    Fuzzy match: {city} → {fuzzy}")
             continue
 
-        # 3. Geocodificar con Nominatim
+        # 3. Geocodificar con Nominatim (con sesgo geográfico si disponible)
         try:
-            loc = geolocator.geocode(city, language="es")
+            geocode_kwargs = {"language": "es"}
+            if country_codes:
+                geocode_kwargs["country_codes"] = country_codes
+
+            loc = geolocator.geocode(city, **geocode_kwargs)
+
+            # Si no encuentra con sesgo, intentar sin restricción
+            if not loc and country_codes:
+                loc = geolocator.geocode(city, language="es")
+
             if loc:
                 point = {"lat": loc.latitude, "lng": loc.longitude}
                 result[city] = point
@@ -110,7 +128,6 @@ def geocode_cities(cities, overrides=None):
                 print(f"    Geocoded: {city} → ({loc.latitude:.4f}, {loc.longitude:.4f})")
             else:
                 # 4. Intentar sin caracteres especiales
-                import re
                 clean = re.sub(r"[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]", "", city).strip()
                 if clean != city:
                     loc = geolocator.geocode(clean, language="es")
@@ -138,6 +155,21 @@ def geocode_cities(cities, overrides=None):
     return result
 
 
+# Mapeo de regiones del catálogo a códigos de país para sesgo geográfico
+REGION_COUNTRY_CODES = {
+    "sudeste-india-y-oceania": ["in", "np", "lk", "th", "vn", "kh", "mm", "sg", "my", "id", "ph", "nz", "au", "uz", "am", "ge"],
+    "china-japon-y-corea": ["cn", "jp", "kr", "tw", "mn"],
+    "usa-canada": ["us", "ca"],
+    "mexico-cuba": ["mx", "cu", "gt", "bz", "hn", "cr", "pa"],
+    "oriente-medio-africa": ["eg", "ma", "tn", "za", "ke", "tz", "ae", "jo", "il", "tr"],
+    "peninsula": ["es", "pt", "ma"],
+    "mediterranea": ["it", "gr", "hr", "me", "al", "mk", "mt"],
+    "atlantica": ["fr", "gb", "ie", "be", "nl", "lu"],
+    "nordica": ["no", "se", "fi", "dk", "is"],
+    "central": ["de", "at", "ch", "cz", "pl", "hu", "sk", "ro"],
+}
+
+
 # ══════════════════════════════════════════════════════════════════════
 # B. EXTRACCIÓN DE CIUDADES Y SEGMENTOS
 # ══════════════════════════════════════════════════════════════════════
@@ -149,9 +181,13 @@ def extract_unique_cities(itinerario):
     for day in itinerario:
         for city in CITY_SEPARATORS.split(day.get("ciudades", "")):
             city = city.strip()
-            if city and city not in seen:
-                seen.add(city)
-                cities.append(city)
+            if not city or city in seen:
+                continue
+            # Filtrar strings que no son ciudades
+            if city.lower() in CITY_BLACKLIST:
+                continue
+            seen.add(city)
+            cities.append(city)
     return cities
 
 
@@ -290,20 +326,30 @@ def _straight_line(origin, dest):
 # D. FUNCIÓN PRINCIPAL Y CLI
 # ══════════════════════════════════════════════════════════════════════
 
-def generate_circuit_map(program):
+def generate_circuit_map(program, pdf_name=None):
     """
     Genera HTML del mapa interactivo para un programa.
     Recibe dict del programa (mismo formato que programas.json).
+    pdf_name: nombre del PDF (sin extensión) para sesgo geográfico.
     Retorna string HTML (fragmento embebible).
     """
     itinerario = program.get("itinerario", [])
     incluye = program.get("incluye", {})
     vuelos_incluidos = incluye.get("vuelos_incluidos") if incluye else None
 
+    # Determinar sesgo geográfico a partir del nombre del catálogo
+    country_codes = None
+    if pdf_name:
+        pdf_lower = pdf_name.lower()
+        for key, codes in REGION_COUNTRY_CODES.items():
+            if key in pdf_lower:
+                country_codes = codes
+                break
+
     # 1. Extraer ciudades y geocodificar
     cities = extract_unique_cities(itinerario)
     print(f"  Ciudades: {', '.join(cities)}")
-    coords = geocode_cities(cities, program.get("coords_override"))
+    coords = geocode_cities(cities, program.get("coords_override"), country_codes=country_codes)
 
     if not coords:
         print("  [WARN] Sin coordenadas — mapa no generado")
@@ -367,11 +413,11 @@ def generate_circuit_map(program):
     return html
 
 
-def generate_map_file(program, output_dir):
+def generate_map_file(program, output_dir, pdf_name=None):
     """
     Genera archivo HTML completo (con shell) para preview local.
     """
-    fragment = generate_circuit_map(program)
+    fragment = generate_circuit_map(program, pdf_name=pdf_name)
     if not fragment:
         return None
 

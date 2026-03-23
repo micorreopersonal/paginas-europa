@@ -14,9 +14,11 @@ input/catalogo.pdf
     ├── [3] generate_seo.py             → enriquece JSON con SEO
     ├── [4] fetch_images.py             → agrega imágenes Pexels
     ├── [5] generate_map.py             → mapas interactivos MapLibre
-    └── [6] etapa4_publicar_wordpress.py → publica en WordPress
+    ├── [6] etapa4_publicar_wordpress.py → publica circuitos en WordPress
+    └── [7] etapa4_publicar_wordpress.py → página contenedora por región
                                             ↓
                                     paqueteseuropa.com/circuitos/{slug}/
+                                    paqueteseuropa.com/circuitos-{region}/
 ```
 
 ## Uso rápido
@@ -28,11 +30,14 @@ pip install -r requirements.txt
 # Procesar PDF completo (etapas 1-5, sin publicar)
 python procesar_pdf.py input/catalogo.pdf
 
-# Procesar y publicar en WordPress
-python procesar_pdf.py input/catalogo.pdf --etapas 1,2,3,4,5,6
+# Procesar y publicar en WordPress (completo con página contenedora)
+python procesar_pdf.py input/catalogo.pdf --etapas 1,2,3,4,5,6,7
 
 # Solo publicar (si ya se procesó antes)
-python procesar_pdf.py input/catalogo.pdf --etapas 6 --status publish
+python procesar_pdf.py input/catalogo.pdf --etapas 6,7 --status publish
+
+# Solo crear/actualizar página contenedora
+python procesar_pdf.py input/catalogo.pdf --etapas 7 --status publish
 
 # Probar con pocos programas
 python procesar_pdf.py input/catalogo.pdf --test 3

@@ -234,10 +234,28 @@ def upload_image_from_url(image_url, title, auth, alt_text=None):
     return None
 
 
+def find_existing_circuito(id_europamundo, auth):
+    """Busca un circuito existente por su id_europamundo (meta field)."""
+    r = requests.get(
+        f"{WP_URL}/wp-json/wp/v2/circuito",
+        auth=auth,
+        params={
+            "meta_key": "id_europamundo",
+            "meta_value": id_europamundo,
+            "per_page": 1,
+            "status": "any",
+        }
+    )
+    if r.status_code == 200 and r.json():
+        return r.json()[0]["id"]
+    return None
+
+
 def create_circuito(title, content, status, auth, seo=None,
                     region_id=None, serie_id=None, program=None,
                     featured_media_id=None):
-    """Crea un circuito en WordPress con taxonomías y meta SEO."""
+    """Crea o actualiza un circuito en WordPress con taxonomías y meta SEO.
+    Si ya existe un circuito con el mismo id_europamundo, lo actualiza."""
     post_data = {
         "title": title,
         "content": content,
@@ -263,13 +281,29 @@ def create_circuito(title, content, status, auth, seo=None,
             "fechas_salida": program.get("fechas_salida", ""),
         }
 
-    # Crear el circuito
-    r = requests.post(f"{WP_URL}/wp-json/wp/v2/circuito", auth=auth, json=post_data)
+    # Buscar si ya existe (por id_europamundo)
+    existing_id = None
+    is_update = False
+    if program and program.get("id"):
+        existing_id = find_existing_circuito(program["id"], auth)
 
-    if r.status_code != 201:
-        return r
+    if existing_id:
+        # Actualizar circuito existente
+        r = requests.post(
+            f"{WP_URL}/wp-json/wp/v2/circuito/{existing_id}",
+            auth=auth, json=post_data
+        )
+        is_update = True
+        post_id = existing_id
+    else:
+        # Crear nuevo circuito
+        r = requests.post(f"{WP_URL}/wp-json/wp/v2/circuito", auth=auth, json=post_data)
+        if r.status_code != 201:
+            return r, False
+        post_id = r.json()["id"]
 
-    post_id = r.json()["id"]
+    if r.status_code not in (200, 201):
+        return r, is_update
 
     # Setear meta SEO de Rank Math via endpoint custom
     if seo:
@@ -287,7 +321,7 @@ def create_circuito(title, content, status, auth, seo=None,
             auth=auth, json=seo_meta
         )
 
-    return r
+    return r, is_update
 
 
 def publish_programs(pdf_path, status="draft"):
@@ -323,6 +357,7 @@ def publish_programs(pdf_path, status="draft"):
 
     # Resolver taxonomías (región y serie) a partir del nombre del PDF
     pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    # pdf_name se usa también para sesgo geográfico en el mapa
     region_id, serie_id = resolve_taxonomy_ids(pdf_name, auth)
     print(f"Región: {region_id or 'no detectada'} | Serie: {serie_id or 'no detectada'}")
 
@@ -340,7 +375,7 @@ def publish_programs(pdf_path, status="draft"):
         map_html = None
         try:
             print(f"    Mapa...", end=" ", flush=True)
-            map_html = generate_circuit_map(prog)
+            map_html = generate_circuit_map(prog, pdf_name=pdf_name)
             print("OK", end=" | ", flush=True)
         except Exception as e:
             print(f"WARN: {e}", end=" | ", flush=True)
@@ -360,16 +395,17 @@ def publish_programs(pdf_path, status="draft"):
         # Generar contenido y crear circuito con SEO + taxonomías
         seo = prog.get("seo")
         content = build_page_content(prog, map_html)
-        r = create_circuito(
+        r, is_update = create_circuito(
             titulo, content, status, auth,
             seo=seo, region_id=region_id, serie_id=serie_id, program=prog,
             featured_media_id=featured_id,
         )
 
-        if r.status_code == 201:
+        if r.status_code in (200, 201):
             post = r.json()
-            print(f"OK (id={post['id']})")
-            results.append({"id": prog_id, "post_id": post["id"], "link": post["link"]})
+            action = "UPDATED" if is_update else "CREATED"
+            print(f"{action} (id={post['id']})")
+            results.append({"id": prog_id, "post_id": post["id"], "link": post["link"], "action": action.lower()})
         else:
             print(f"ERROR {r.status_code}")
             results.append({"id": prog_id, "error": r.text[:150]})
@@ -380,10 +416,202 @@ def publish_programs(pdf_path, status="draft"):
         json.dump(results, f, ensure_ascii=False, indent=2)
 
     print("-" * 50)
-    ok = len([r for r in results if "post_id" in r])
-    print(f"Páginas creadas: {ok}/{len(valid)}")
+    ok = [r for r in results if "post_id" in r]
+    created = len([r for r in ok if r.get("action") == "created"])
+    updated = len([r for r in ok if r.get("action") == "updated"])
+    print(f"Resultados: {created} creados, {updated} actualizados, {len(valid) - len(ok)} errores")
     print(f"Log guardado en: {log_path}")
     print(f"Revisa en: {WP_URL}/wp-admin/edit.php?post_type=circuito")
+
+
+def create_region_page(pdf_path, status="publish"):
+    """
+    Etapa 7: Crea (o actualiza) la página contenedora de la región.
+    Usa el shortcode [europamundo_circuitos region="slug"] para mostrar cards.
+    También actualiza el menú para apuntar a esta página.
+    """
+    if not WP_URL or not WP_USER or not WP_APP_PASSWORD:
+        print("Error: Configura WP_URL, WP_USER y WP_APP_PASSWORD en .env")
+        sys.exit(1)
+
+    auth = (WP_USER, WP_APP_PASSWORD)
+    pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
+
+    # Determinar región a partir del nombre del PDF
+    region_name = None
+    for key, name in CATALOG_TO_REGION.items():
+        if key in pdf_name.lower():
+            region_name = name
+            break
+
+    if not region_name:
+        print("  [WARN] No se pudo determinar la región del PDF. Página no creada.")
+        return None
+
+    # Obtener el slug de la región desde WordPress
+    r = requests.get(
+        f"{WP_URL}/wp-json/wp/v2/region_europamundo",
+        auth=auth, params={"search": region_name}
+    )
+    if r.status_code != 200 or not r.json():
+        print(f"  [WARN] Región '{region_name}' no encontrada en WordPress.")
+        return None
+
+    region_term = r.json()[0]
+    region_slug = region_term["slug"]
+    region_id = region_term["id"]
+
+    # Contar circuitos en esta región
+    r_count = requests.get(
+        f"{WP_URL}/wp-json/wp/v2/circuito",
+        auth=auth, params={"region_europamundo": region_id, "per_page": 1}
+    )
+    total_circuitos = int(r_count.headers.get("X-WP-Total", 0))
+
+    page_title = f"Circuitos {region_name}"
+    page_slug = f"circuitos-{region_slug}"
+
+    # Contenido: shortcode + texto SEO
+    page_content = f"""<!-- wp:paragraph -->
+<p>Descubre nuestra selección de <strong>{total_circuitos} circuitos por {region_name}</strong> con Europamundo Vacaciones. Todos los recorridos incluyen transporte, alojamiento, guía en español y las experiencias más destacadas de cada destino.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:shortcode -->
+[europamundo_circuitos region="{region_slug}" limit="100"]
+<!-- /wp:shortcode -->
+
+<!-- wp:paragraph -->
+<p>¿No encuentras lo que buscas? Consulta todos nuestros <a href="/circuitos/">circuitos disponibles</a> o <a href="https://wa.link/pe2cih" target="_blank" rel="noopener">contacta a una asesora</a> para armar tu viaje ideal.</p>
+<!-- /wp:paragraph -->"""
+
+    # Verificar si la página ya existe (por slug)
+    r = requests.get(
+        f"{WP_URL}/wp-json/wp/v2/pages",
+        auth=auth, params={"slug": page_slug}
+    )
+    existing_pages = r.json() if r.status_code == 200 else []
+
+    if existing_pages:
+        # Actualizar página existente
+        page_id = existing_pages[0]["id"]
+        r = requests.post(
+            f"{WP_URL}/wp-json/wp/v2/pages/{page_id}",
+            auth=auth,
+            json={
+                "title": page_title,
+                "content": page_content,
+                "status": status,
+            }
+        )
+        if r.status_code == 200:
+            page_url = r.json()["link"]
+            print(f"  Página actualizada: {page_title} → {page_url}")
+        else:
+            print(f"  [ERROR] Actualizar página: {r.status_code} {r.text[:150]}")
+            return None
+    else:
+        # Crear nueva página
+        r = requests.post(
+            f"{WP_URL}/wp-json/wp/v2/pages",
+            auth=auth,
+            json={
+                "title": page_title,
+                "content": page_content,
+                "status": status,
+                "slug": page_slug,
+            }
+        )
+        if r.status_code == 201:
+            page_url = r.json()["link"]
+            page_id = r.json()["id"]
+            print(f"  Página creada: {page_title} → {page_url}")
+        else:
+            print(f"  [ERROR] Crear página: {r.status_code} {r.text[:150]}")
+            return None
+
+    # SEO para la página contenedora
+    seo_meta = {
+        "rank_math_title": f"Circuitos {region_name} 2025-2027 | Europamundo | Gina Travel",
+        "rank_math_description": f"Circuitos por {region_name} con Europamundo Vacaciones. {total_circuitos} recorridos con guía en español, transporte y alojamiento incluido.",
+        "rank_math_focus_keyword": f"circuitos {region_name.lower()}",
+    }
+    requests.post(
+        f"{WP_URL}/wp-json/europamundo/v1/seo/{page_id}",
+        auth=auth, json=seo_meta
+    )
+    print(f"  SEO configurado: circuitos {region_name.lower()}")
+
+    # Actualizar menú: cambiar el link del sub-item de esta región
+    # para que apunte a la página en vez del archive de taxonomía
+    _update_menu_link(region_name, page_url, auth)
+
+    return page_url
+
+
+def _update_menu_link(region_name, page_url, auth):
+    """
+    Vincula la página contenedora al sub-menú 'Circuitos Europamundo'.
+    - Si ya existe un item con el nombre de la región, actualiza su URL.
+    - Si no existe, crea un nuevo sub-item bajo 'Circuitos Europamundo'.
+    """
+    r = requests.get(
+        f"{WP_URL}/wp-json/wp/v2/menu-items",
+        auth=auth, params={"per_page": 100}
+    )
+    if r.status_code != 200:
+        print(f"  [WARN] No se pudo acceder a menu-items. Vincula manualmente: {page_url}")
+        return
+
+    items = r.json()
+
+    # Buscar todos los padres "Circuitos Europamundo" o "Europamundo"
+    parent_ids = []
+    for item in items:
+        title = item.get("title", {}).get("rendered", "")
+        if title in ("Circuitos Europamundo", "Europamundo"):
+            parent_ids.append(item["id"])
+
+    if not parent_ids:
+        print(f"  [WARN] No se encontró menú 'Circuitos Europamundo'. Vincula manualmente: {page_url}")
+        return
+
+    # Buscar items existentes con el nombre de la región
+    existing_items = [
+        item for item in items
+        if item.get("title", {}).get("rendered", "") == region_name
+        and item.get("parent", 0) in parent_ids
+    ]
+
+    if existing_items:
+        # Actualizar URL de items existentes
+        for item in existing_items:
+            requests.post(
+                f"{WP_URL}/wp-json/wp/v2/menu-items/{item['id']}",
+                auth=auth, json={"url": page_url}
+            )
+        print(f"  Menú actualizado: {len(existing_items)} item(s) '{region_name}' → {page_url}")
+    else:
+        # Crear nuevo sub-item bajo cada padre "Circuitos Europamundo"
+        # Obtener el menú al que pertenece el primer padre
+        created = 0
+        for parent_id in parent_ids:
+            parent_item = next(i for i in items if i["id"] == parent_id)
+            menus = parent_item.get("menus", 0)
+
+            r2 = requests.post(
+                f"{WP_URL}/wp-json/wp/v2/menu-items",
+                auth=auth,
+                json={
+                    "title": region_name,
+                    "url": page_url,
+                    "status": "publish",
+                    "parent": parent_id,
+                    "menus": menus,
+                }
+            )
+            if r2.status_code == 200:
+                created += 1
+        print(f"  Menú: {created} sub-item(s) '{region_name}' creado(s) bajo Circuitos Europamundo")
 
 
 def main():

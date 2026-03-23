@@ -8,20 +8,22 @@ Ejecuta las etapas en secuencia:
   4. Obtener imágenes de portada desde Pexels
   5. Generar mapas interactivos (MapLibre + OSRM)
   6. Publicar circuitos en WordPress (CPT + taxonomías + Rank Math SEO)
+  7. Crear página contenedora por región (con shortcode + SEO + menú)
 
 Uso:
     python procesar_pdf.py <ruta_pdf> [opciones]
 
 Opciones:
-    --etapas 1,2,3,4,5,6   Etapas a ejecutar (default: 1,2,3,4,5)
-    --test N                Solo procesar N programas
-    --status draft          Estado WP: draft|publish (default: draft)
+    --etapas 1,2,3,4,5,6,7  Etapas a ejecutar (default: 1,2,3,4,5)
+    --test N                 Solo procesar N programas
+    --status draft           Estado WP: draft|publish (default: draft)
 
 Ejemplos:
-    python procesar_pdf.py input/catalogo.pdf                      # Etapas 1-5 (sin publicar)
-    python procesar_pdf.py input/catalogo.pdf --etapas 1,2,3,4,5,6 # Completo con WordPress
-    python procesar_pdf.py input/catalogo.pdf --etapas 6            # Solo publicar
-    python procesar_pdf.py input/catalogo.pdf --test 3              # Solo 3 programas
+    python procesar_pdf.py input/catalogo.pdf                        # Etapas 1-5 (sin publicar)
+    python procesar_pdf.py input/catalogo.pdf --etapas 1,2,3,4,5,6,7 # Completo con WordPress
+    python procesar_pdf.py input/catalogo.pdf --etapas 6,7           # Solo publicar + página
+    python procesar_pdf.py input/catalogo.pdf --etapas 7             # Solo página contenedora
+    python procesar_pdf.py input/catalogo.pdf --test 3               # Solo 3 programas
 
 Configuración (.env):
     ANTHROPIC_API_KEY   — API key Claude (si LLM_PROVIDER=claude)
@@ -29,9 +31,9 @@ Configuración (.env):
     LLM_PROVIDER        — "claude" o "gemini" (default: claude)
     PEXELS_API_KEY      — Para imágenes de portada
     MAPTILER_API_KEY    — Para mapas interactivos
-    WP_URL              — URL WordPress (solo etapa 6)
-    WP_USER             — Usuario WordPress (solo etapa 6)
-    WP_APP_PASSWORD     — Application Password (solo etapa 6)
+    WP_URL              — URL WordPress (solo etapas 6-7)
+    WP_USER             — Usuario WordPress (solo etapas 6-7)
+    WP_APP_PASSWORD     — Application Password (solo etapas 6-7)
 """
 
 import sys
@@ -86,33 +88,33 @@ def main():
 
     # ── ETAPA 1: PDF → Imágenes ──────────────────────────────────
     if 1 in etapas:
-        print("\n[1/6] Extrayendo programas del PDF...")
+        print("\n[1/7] Extrayendo programas del PDF...")
         from etapa1_extraer_programas import extract_programs
         extract_programs(pdf_path, output_base)
 
     # ── ETAPA 2: Imágenes → JSON (LLM Vision) ───────────────────
     if 2 in etapas:
-        print("\n[2/6] Extrayendo datos con LLM Vision...")
+        print("\n[2/7] Extrayendo datos con LLM Vision...")
         from etapa2_extraer_datos import process_programs
         process_programs(pdf_path, test_count)
 
     # ── ETAPA 3: Generar contenido SEO ───────────────────────────
     if 3 in etapas:
-        print("\n[3/6] Generando contenido SEO...")
+        print("\n[3/7] Generando contenido SEO...")
         from generate_seo import enrich_programs_with_seo
         json_path = os.path.join(output_base, "programas.json")
         enrich_programs_with_seo(json_path, test_count)
 
     # ── ETAPA 4: Obtener imágenes de Pexels ──────────────────────
     if 4 in etapas:
-        print("\n[4/6] Obteniendo imágenes de Pexels...")
+        print("\n[4/7] Obteniendo imágenes de Pexels...")
         from fetch_images import enrich_programs_with_images
         json_path = os.path.join(output_base, "programas.json")
         enrich_programs_with_images(json_path, test_count)
 
     # ── ETAPA 5: Generar mapas interactivos ──────────────────────
     if 5 in etapas:
-        print("\n[5/6] Generando mapas interactivos...")
+        print("\n[5/7] Generando mapas interactivos...")
         import json
         from generate_map import generate_map_file
         json_path = os.path.join(output_base, "programas.json")
@@ -124,15 +126,21 @@ def main():
             valid = valid[:test_count]
         for prog in valid:
             try:
-                generate_map_file(prog, maps_dir)
+                generate_map_file(prog, maps_dir, pdf_name=pdf_name)
             except Exception as e:
                 print(f"    WARN {prog.get('id', '?')}: {e}")
 
     # ── ETAPA 6: Publicar en WordPress ───────────────────────────
     if 6 in etapas:
-        print("\n[6/6] Publicando en WordPress...")
+        print("\n[6/7] Publicando en WordPress...")
         from etapa4_publicar_wordpress import publish_programs
         publish_programs(pdf_path, wp_status)
+
+    # ── ETAPA 7: Crear página contenedora por región ──────────
+    if 7 in etapas:
+        print("\n[7/7] Creando página contenedora de región...")
+        from etapa4_publicar_wordpress import create_region_page
+        create_region_page(pdf_path, wp_status)
 
     # ── Mover PDF a procesados (solo si NO es modo test) ────────
     if not test_count:
