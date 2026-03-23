@@ -7,6 +7,7 @@ const CIRCUIT = {{ circuit | tojson }};
 const COORDS = {{ coords_json }};
 const TRAMOS = {{ tramos_json }};
 const NIGHTS = {{ nights_json }};
+const ARRIVAL = {{ arrival_json }};
 const MEALS = {{ meals_json }};
 const MAPTILER_KEY = "{{ maptiler_key }}";
 </script>
@@ -35,8 +36,8 @@ const MAPTILER_KEY = "{{ maptiler_key }}";
 .cm-marker-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
 .cm-marker-label { white-space: nowrap; font-size: 11px; font-weight: 700; color: #3b3d42; text-transform: uppercase; letter-spacing: 0.5px; text-shadow: 0 0 4px white, 0 0 4px white, 0 0 4px white; transition: opacity 0.2s; }
 .cm-marker-label.hidden { opacity: 0; }
-.cm-marker-dot { width: 24px; height: 24px; border-radius: 50%; background: #398ffc; color: white; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: all 0.3s; }
-.cm-marker-dot.active { width: 30px; height: 30px; font-size: 13px; background: #1a6fdc; box-shadow: 0 2px 12px rgba(57,143,252,0.5); }
+.cm-marker-dot { min-width: 28px; height: 28px; padding: 0 4px; border-radius: 50%; background: #398ffc; color: white; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: all 0.3s; box-sizing: border-box; }
+.cm-marker-dot.active { min-width: 34px; height: 34px; font-size: 14px; background: #1a6fdc; box-shadow: 0 2px 12px rgba(57,143,252,0.5); }
 
 /* Barra de días */
 .cm-days-bar { display: flex; gap: 4px; margin-top: 14px; overflow-x: auto; padding: 4px 0; scrollbar-width: none; }
@@ -86,7 +87,7 @@ const MAPTILER_KEY = "{{ maptiler_key }}";
   <div class="cm-legend">
     <div class="cm-legend-item"><div class="cm-legend-line road"></div> Ruta terrestre</div>
     <div class="cm-legend-item"><div class="cm-legend-line flight"></div> Vuelo incluido</div>
-    <div class="cm-legend-item"><div class="cm-legend-dot">N</div> Noches en ciudad</div>
+    <div class="cm-legend-item"><div class="cm-legend-dot">D</div> Día de llegada</div>
   </div>
 </div>
 
@@ -191,9 +192,9 @@ const MAPTILER_KEY = "{{ maptiler_key }}";
       });
     });
 
-    // Marcadores de ciudad con noches
+    // Marcadores de ciudad con día de llegada
     Object.entries(COORDS).forEach(([city, coord]) => {
-      const n = NIGHTS[city] || 0;
+      const arrivalDay = ARRIVAL[city] || '';
 
       const wrap = document.createElement('div');
       wrap.className = 'cm-marker-wrap';
@@ -204,7 +205,7 @@ const MAPTILER_KEY = "{{ maptiler_key }}";
 
       const dot = document.createElement('div');
       dot.className = 'cm-marker-dot';
-      dot.textContent = n > 0 ? n : '';
+      dot.textContent = arrivalDay;
 
       wrap.appendChild(label);
       wrap.appendChild(dot);

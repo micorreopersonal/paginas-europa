@@ -133,8 +133,8 @@ def process_programs(pdf_path, test_count=None):
     print(f"Usando: {info['provider']} ({info['model']})")
 
     # Directorio de imágenes (mismo que usa etapa 1)
-    pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
-    input_dir = os.path.join(os.path.dirname(pdf_path), "output", pdf_name)
+    from scripts import get_output_dir
+    input_dir = get_output_dir(pdf_path)
 
     # Buscar imágenes de programa
     images = sorted(glob.glob(os.path.join(input_dir, "programa_*.png")))

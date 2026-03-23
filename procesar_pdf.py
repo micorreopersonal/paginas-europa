@@ -71,7 +71,8 @@ def main():
         wp_status = sys.argv[idx + 1]
 
     pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
-    output_base = os.path.join(os.path.dirname(pdf_path) or ".", "output", pdf_name)
+    output_base = os.path.join(PROJECT_ROOT, "output", pdf_name)
+    os.makedirs(output_base, exist_ok=True)
 
     print("=" * 60)
     print("  EUROPAMUNDO PDF → WORDPRESS PIPELINE")
@@ -133,15 +134,16 @@ def main():
         from etapa4_publicar_wordpress import publish_programs
         publish_programs(pdf_path, wp_status)
 
-    # ── Mover PDF a procesados ─────────────────────────────────
-    import shutil
-    input_dir = os.path.dirname(pdf_path) or "."
-    procesados_dir = os.path.join(input_dir, "procesados")
-    os.makedirs(procesados_dir, exist_ok=True)
-    dest = os.path.join(procesados_dir, os.path.basename(pdf_path))
-    if not os.path.exists(dest):
-        shutil.move(pdf_path, dest)
-        print(f"\n  PDF movido a: {dest}")
+    # ── Mover PDF a procesados (solo si NO es modo test) ────────
+    if not test_count:
+        import shutil
+        input_dir = os.path.dirname(pdf_path) or "."
+        procesados_dir = os.path.join(input_dir, "procesados")
+        os.makedirs(procesados_dir, exist_ok=True)
+        dest = os.path.join(procesados_dir, os.path.basename(pdf_path))
+        if not os.path.exists(dest):
+            shutil.move(pdf_path, dest)
+            print(f"\n  PDF movido a: {dest}")
 
     elapsed = time.time() - start
     print(f"\n{'=' * 60}")

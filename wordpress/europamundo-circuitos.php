@@ -265,12 +265,60 @@ function europamundo_create_menu() {
 function europamundo_custom_styles() {
     ?>
     <style>
+    /* Título estilo banner azul */
+    .single-circuito .entry-title,
+    .single-circuito h1.entry-title,
+    .single-circuito article h1 {
+        background: #39a0fc;
+        color: #fff !important;
+        text-align: center;
+        font-size: 2.4em;
+        font-weight: 700;
+        padding: 30px 20px;
+        margin: 0 -50vw 0 -50vw;
+        width: 100vw;
+        position: relative;
+        left: 50%;
+        right: 50%;
+        margin-left: -50vw;
+        margin-right: -50vw;
+        line-height: 1.3;
+    }
+
+    /* Imagen destacada: centrada y ancho completo */
+    .single-circuito .post-thumbnail,
+    .single-circuito .wp-post-image,
+    .single-circuito .entry-content img.wp-post-image,
+    .single-circuito article img.wp-post-image {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        margin: 0 auto;
+        object-fit: cover;
+    }
+    .single-circuito .post-thumbnail,
+    .single-circuito .wp-block-post-featured-image {
+        text-align: center;
+        width: 100%;
+        max-width: 100%;
+    }
+
     /* Ocultar autor en circuitos */
     .single-circuito .author-box,
     .single-circuito .post-author,
     .single-circuito .entry-author,
+    .single-circuito .entry-meta .author,
     .single-circuito .author-info,
-    .single-circuito .single-post-author { display: none !important; }
+    .single-circuito .single-post-author,
+    .single-circuito .post-author-box,
+    .single-circuito .about-author,
+    .single-circuito .author-bio,
+    .single-circuito .author-avatar,
+    .single-circuito .byline,
+    .single-circuito .vcard,
+    .single-circuito [class*="author"],
+    .single-circuito [rel="author"] { display: none !important; }
 
     /* ===== Elementor HFE Nav Menu - Fix dropdown ===== */
     .elementor-1923 .elementor-element.elementor-element-94deac2 .sub-menu li a.hfe-sub-menu-item,

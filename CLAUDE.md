@@ -94,13 +94,35 @@ procesar-paginas-europamundo/
 - **SEO:** Rank Math con endpoint custom `/europamundo/v1/seo/{id}`
 - **Publicar como:** draft por defecto, publish con --status publish
 
+### Estilos del plugin (CSS inyectado)
+
+- **Título:** banner azul full-width con texto blanco grande (estilo página hermana)
+- **Subtítulos** (Itinerario, Incluye): fondo turquesa `#1a8fb5` con texto blanco
+- **Imagen destacada:** centrada y estirada al 100% del ancho
+- **Autor:** oculto en páginas de circuito
+- **Alt text de imagen:** incluye la focus keyword de Rank Math para SEO
+
+## Mapa interactivo
+
+- Marcadores muestran **día de llegada** a cada ciudad (no noches)
+- Tamaño de marcador preparado para 2 dígitos (ej: día 10)
+- Leyenda: ruta terrestre, vuelo incluido, día de llegada
+- Rutas reales por carretera (OSRM) y arcos de gran círculo para vuelos
+
+## Optimizaciones
+
+- **Reducción de imagen al 50%** antes de enviar al LLM Vision (ahorro ~40-50% tokens)
+- **Reprocesar sin re-extraer:** `--etapas 5,6` regenera mapas y republica sin repetir OCR/SEO
+
 ## Costos por programa
 
 | Componente | Claude Haiku | Gemini Flash |
 |---|---|---|
-| Extracción datos (etapa 2) | ~$0.008 | ~$0.002 |
+| Extracción datos (etapa 2) | ~$0.004 | ~$0.001 |
 | SEO (etapa 3) | ~$0.005 | ~$0.001 |
 | Pexels (etapa 4) | Gratis | Gratis |
 | OSRM routing (etapa 5) | Gratis | Gratis |
-| **Total por programa** | **~$0.013** | **~$0.003** |
-| **500 programas** | **~$6.50** | **~$1.50** |
+| **Total por programa** | **~$0.009** | **~$0.002** |
+| **500 programas** | **~$4.50** | **~$1.00** |
+
+*Costos con reducción de imagen al 50% aplicada.*

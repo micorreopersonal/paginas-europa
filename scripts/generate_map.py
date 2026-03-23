@@ -56,11 +56,28 @@ def _save_cache(cache):
     CACHE_PATH.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _fuzzy_match_cache(city, cache):
+    """Busca coincidencia fuzzy en el caché para ciudades con typos del OCR."""
+    from difflib import get_close_matches
+    matches = get_close_matches(city, cache.keys(), n=1, cutoff=0.75)
+    if matches:
+        return matches[0]
+    # Intentar sin acentos
+    import unicodedata
+    def _strip_accents(s):
+        return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+    city_clean = _strip_accents(city).lower()
+    for cached_city in cache:
+        if _strip_accents(cached_city).lower() == city_clean:
+            return cached_city
+    return None
+
+
 def geocode_cities(cities, overrides=None):
     """
     Resuelve coordenadas para una lista de ciudades.
     Retorna {ciudad: {"lat": float, "lng": float}}.
-    Usa caché en disco para evitar llamadas repetidas.
+    Usa caché en disco con búsqueda fuzzy para tolerar typos del OCR.
     """
     cache = _load_cache()
     geolocator = Nominatim(user_agent="europamundo-circuit-map/1.0")
@@ -68,10 +85,21 @@ def geocode_cities(cities, overrides=None):
     needs_save = False
 
     for city in cities:
+        # 1. Match exacto en caché
         if city in cache:
             result[city] = cache[city]
             continue
 
+        # 2. Match fuzzy en caché (tolera typos: "Fahtehpur" → "Fatehpur")
+        fuzzy = _fuzzy_match_cache(city, cache)
+        if fuzzy:
+            result[city] = cache[fuzzy]
+            cache[city] = cache[fuzzy]  # guardar con el nombre actual también
+            needs_save = True
+            print(f"    Fuzzy match: {city} → {fuzzy}")
+            continue
+
+        # 3. Geocodificar con Nominatim
         try:
             loc = geolocator.geocode(city, language="es")
             if loc:
@@ -81,7 +109,21 @@ def geocode_cities(cities, overrides=None):
                 needs_save = True
                 print(f"    Geocoded: {city} → ({loc.latitude:.4f}, {loc.longitude:.4f})")
             else:
-                print(f"    [WARN] Ciudad no encontrada: {city}")
+                # 4. Intentar sin caracteres especiales
+                import re
+                clean = re.sub(r"[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]", "", city).strip()
+                if clean != city:
+                    loc = geolocator.geocode(clean, language="es")
+                    if loc:
+                        point = {"lat": loc.latitude, "lng": loc.longitude}
+                        result[city] = point
+                        cache[city] = point
+                        needs_save = True
+                        print(f"    Geocoded (cleaned): {city} → {clean} → ({loc.latitude:.4f}, {loc.longitude:.4f})")
+                    else:
+                        print(f"    [WARN] Ciudad no encontrada: {city}")
+                else:
+                    print(f"    [WARN] Ciudad no encontrada: {city}")
         except Exception as e:
             print(f"    [WARN] Error geocodificando {city}: {e}")
 
@@ -167,6 +209,17 @@ def compute_nights_per_city(itinerario):
         if city and i < len(itinerario) - 1:
             nights[city] = nights.get(city, 0) + 1
     return nights
+
+
+def compute_arrival_day(itinerario):
+    """Calcula el número de día de llegada a cada ciudad (1-based)."""
+    arrival = {}
+    for i, day in enumerate(itinerario):
+        cities = [c.strip() for c in CITY_SEPARATORS.split(day.get("ciudades", ""))]
+        city = cities[-1] if cities else None
+        if city and city not in arrival:
+            arrival[city] = day.get("dia", i + 1)
+    return arrival
 
 
 def detect_meals(day):
@@ -287,6 +340,7 @@ def generate_circuit_map(program):
 
     # 3. Datos adicionales
     nights = compute_nights_per_city(itinerario)
+    arrival = compute_arrival_day(itinerario)
     meals = [detect_meals(day) for day in itinerario]
 
     # 4. Detectar vuelo por día
@@ -305,6 +359,7 @@ def generate_circuit_map(program):
         coords_json=json.dumps(coords, ensure_ascii=False),
         tramos_json=json.dumps(tramos, ensure_ascii=False),
         nights_json=json.dumps(nights, ensure_ascii=False),
+        arrival_json=json.dumps(arrival, ensure_ascii=False),
         meals_json=json.dumps(meals, ensure_ascii=False),
         maptiler_key=MAPTILER_KEY,
     )

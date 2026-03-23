@@ -44,11 +44,30 @@ def llm_text(prompt, max_tokens=4096):
         return _gemini_text(prompt, max_tokens)
 
 
+def _resize_image(image_bytes, scale=0.5):
+    """Reduce resolución de imagen para ahorrar tokens de visión (~40-50% menos)."""
+    from PIL import Image
+    import io
+    img = Image.open(io.BytesIO(image_bytes))
+    original_size = len(image_bytes)
+    new_w = int(img.width * scale)
+    new_h = int(img.height * scale)
+    img_small = img.resize((new_w, new_h), Image.LANCZOS)
+    buf = io.BytesIO()
+    img_small.save(buf, format="PNG", optimize=True)
+    resized_bytes = buf.getvalue()
+    ratio = len(resized_bytes) / original_size * 100
+    print(f"    Imagen: {img.width}x{img.height} → {new_w}x{new_h} ({ratio:.0f}% del original)")
+    return resized_bytes
+
+
 def llm_vision(image_bytes, prompt, media_type="image/png", max_tokens=4096):
     """
     Envía una imagen + prompt y retorna la respuesta.
+    Reduce la imagen al 50% antes de enviar para ahorrar tokens.
     Retorna: (text, usage_dict)
     """
+    image_bytes = _resize_image(image_bytes)
     if LLM_PROVIDER == "claude":
         return _claude_vision(image_bytes, prompt, media_type, max_tokens)
     else:

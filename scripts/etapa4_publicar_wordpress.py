@@ -44,24 +44,22 @@ INCLUDE_LABELS = {
 
 def build_page_content(program, map_html=None):
     """Genera HTML Gutenberg-compatible para el contenido de la página."""
-    # Itinerario
+    # Itinerario — estilo similar a página hermana: día en bold, ciudad uppercase, descripción normal
     itinerary_parts = []
     for day in program.get("itinerario", []):
         desc = day.get("descripcion") or day.get("descripción") or ""
-        ciudades = day.get("ciudades", "")
+        ciudades = day.get("ciudades", "").upper()
         dia_num = day.get("dia", "")
         dia_semana = day.get("dia_semana", "")
 
         itinerary_parts.append(
-            f"<!-- wp:heading {{\"level\":3}} -->\n"
-            f"<h3>Día {dia_num} ({dia_semana}) — {ciudades}</h3>\n"
-            f"<!-- /wp:heading -->\n\n"
             f"<!-- wp:paragraph -->\n"
-            f"<p>{desc}</p>\n"
+            f"<p><strong>DÍA {dia_num}: {dia_semana} — {ciudades}</strong><br>"
+            f"{desc}</p>\n"
             f"<!-- /wp:paragraph -->"
         )
 
-    # Incluye
+    # Incluye — con checks verdes ✔ como la página hermana
     include_items = []
     for key, label in INCLUDE_LABELS.items():
         value = program.get("incluye", {}).get(key)
@@ -71,7 +69,7 @@ def build_page_content(program, map_html=None):
             if not value:
                 continue
             value = "Incluido"
-        include_items.append(f"<li><strong>{label}:</strong> {value}</li>")
+        include_items.append(f"<li>✔ <strong>{label}:</strong> {value}</li>")
 
     # Info resumen
     precio = program.get("precio_desde", "")
@@ -119,20 +117,20 @@ def build_page_content(program, map_html=None):
 </ul>
 <!-- /wp:list -->""")
 
-    # Itinerario
-    parts.append(f"""<!-- wp:heading {{"level":2}} -->
-<h2>Itinerario día a día</h2>
-<!-- /wp:heading -->
+    # Itinerario — heading con barra azul
+    parts.append(f"""<!-- wp:html -->
+<h2 style="background:#1a8fb5; color:white; padding:10px 20px; border-radius:4px; font-size:20px; margin-top:30px;">Itinerario</h2>
+<!-- /wp:html -->
 
 {chr(10).join(itinerary_parts)}""")
 
-    # Incluye
-    parts.append(f"""<!-- wp:heading {{"level":2}} -->
-<h2>El precio incluye</h2>
-<!-- /wp:heading -->
+    # Incluye — heading con barra azul + checks verdes
+    parts.append(f"""<!-- wp:html -->
+<h2 style="background:#1a8fb5; color:white; padding:10px 20px; border-radius:4px; font-size:20px; margin-top:30px;">Incluye:</h2>
+<!-- /wp:html -->
 
-<!-- wp:list -->
-<ul>
+<!-- wp:list {{"className":"no-bullets"}} -->
+<ul style="list-style:none; padding-left:10px;">
 {chr(10).join(include_items)}
 </ul>
 <!-- /wp:list -->""")
@@ -216,7 +214,7 @@ def resolve_taxonomy_ids(pdf_name, auth):
     return region_id, serie_id
 
 
-def upload_image_from_url(image_url, title, auth):
+def upload_image_from_url(image_url, title, auth, alt_text=None):
     """Descarga imagen desde URL y la sube a WordPress Media."""
     try:
         img_r = requests.get(image_url, timeout=15)
@@ -227,7 +225,7 @@ def upload_image_from_url(image_url, title, auth):
             f"{WP_URL}/wp-json/wp/v2/media",
             auth=auth,
             files={"file": (filename, img_r.content, "image/jpeg")},
-            data={"title": title, "alt_text": title},
+            data={"title": title, "alt_text": alt_text or title},
         )
         if r.status_code == 201:
             return r.json()["id"]
@@ -308,8 +306,8 @@ def publish_programs(pdf_path, status="draft"):
     print(f"Conectado a {WP_URL} como '{r.json().get('name')}'")
 
     # Localizar archivos
-    pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
-    output_base = os.path.join(os.path.dirname(pdf_path), "output", pdf_name)
+    from scripts import get_output_dir
+    output_base = get_output_dir(pdf_path)
     json_path = os.path.join(output_base, "programas.json")
 
     if not os.path.exists(json_path):
@@ -324,6 +322,7 @@ def publish_programs(pdf_path, status="draft"):
     from generate_map import generate_circuit_map
 
     # Resolver taxonomías (región y serie) a partir del nombre del PDF
+    pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
     region_id, serie_id = resolve_taxonomy_ids(pdf_name, auth)
     print(f"Región: {region_id or 'no detectada'} | Serie: {serie_id or 'no detectada'}")
 
@@ -352,7 +351,10 @@ def publish_programs(pdf_path, status="draft"):
         cover = images.get("cover", {})
         if cover.get("url_large"):
             print(f"    Imagen...", end=" ", flush=True)
-            featured_id = upload_image_from_url(cover["url_large"], titulo, auth)
+            seo_data = prog.get("seo", {})
+            focus_kw = seo_data.get("focus_keyword", "") if seo_data else ""
+            alt_text = f"{focus_kw} - {titulo}" if focus_kw else titulo
+            featured_id = upload_image_from_url(cover["url_large"], titulo, auth, alt_text=alt_text)
             print(f"{'OK' if featured_id else 'SKIP'}", end=" | ", flush=True)
 
         # Generar contenido y crear circuito con SEO + taxonomías
@@ -378,10 +380,10 @@ def publish_programs(pdf_path, status="draft"):
         json.dump(results, f, ensure_ascii=False, indent=2)
 
     print("-" * 50)
-    ok = len([r for r in results if "page_id" in r])
+    ok = len([r for r in results if "post_id" in r])
     print(f"Páginas creadas: {ok}/{len(valid)}")
     print(f"Log guardado en: {log_path}")
-    print(f"Revisa en: {WP_URL}/wp-admin/edit.php?post_type=page")
+    print(f"Revisa en: {WP_URL}/wp-admin/edit.php?post_type=circuito")
 
 
 def main():

@@ -136,9 +136,9 @@ def main():
         print(f"Error: No se encontró el archivo: {pdf_path}")
         sys.exit(1)
 
-    # Directorio de salida basado en el nombre del PDF
-    pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
-    output_dir = os.path.join(os.path.dirname(pdf_path), "output", pdf_name)
+    # Directorio de salida
+    from scripts import get_output_dir
+    output_dir = get_output_dir(pdf_path)
 
     programs = extract_programs(pdf_path, output_dir)
 
